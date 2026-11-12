@@ -1104,6 +1104,8 @@ fluxion_allocate_interface() { # Reserve interfaces
   fi
 
   local -r identifier=$1
+  # When 1, skip fluxwl rename and use airmon-ng.
+  local allocUseAirmonNg=0
   echo "=== ALLOCATE: $identifier ===" >> "$FLUXIONOutputDevice"
   echo "FluxionInterfaces[$identifier] = '${FluxionInterfaces[$identifier]}'" >> "$FLUXIONOutputDevice"
 
@@ -1183,13 +1185,21 @@ fluxion_allocate_interface() { # Reserve interfaces
       done
     fi
 
+    # Intel iwlwifi: monitor via "iw dev … set type monitor" on a renamed
+    # netdev often captures no beacons; airmon-ng uses a driver-friendly path.
+    if [ "$FLUXIONAirmonNG" = "1" ]; then
+      allocUseAirmonNg=1
+    elif interface_driver "$identifier" &>/dev/null && [ "$InterfaceDriver" = "iwlwifi" ]; then
+      allocUseAirmonNg=1
+    fi
+
     # Set wireless flag to prevent having to re-query.
     local -r allocatingWirelessInterface=1
   fi
 
   # If we're using the interface library, reidentify now.
-  # If usuing airmon-ng, let airmon-ng rename the interface.
-  if [ ! $FLUXIONAirmonNG ]; then
+  # If usuing airmon-ng, let airmon-ng set up monitor mode (and naming).
+  if [ "$allocUseAirmonNg" != "1" ]; then
     echo -e "$FLUXIONVLine $FLUXIONReidentifyingInterface"
 
     # Prevent interface-snatching by renaming the interface.
@@ -1220,7 +1230,7 @@ fluxion_allocate_interface() { # Reserve interfaces
     # Snatching or crashing interface issues could occur.
 
     # NOTICE: Conditionals below populate newIdentifier on success.
-    if [ $FLUXIONAirmonNG ]; then
+    if [ "$allocUseAirmonNg" = "1" ]; then
       local -r newIdentifier=$(
         airmon-ng start $identifier |
         grep "monitor .* enabled" |
